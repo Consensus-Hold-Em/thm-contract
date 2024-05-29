@@ -60,7 +60,7 @@ module consensus_holdem::consensus_holdem {
     }
 
     // someone creates the table
-    public entry fun create_table(coin: Coin<SUI>, ctx: &mut TxContext):  {
+    public entry fun create_table(coin: Coin<SUI>, ctx: &mut TxContext) {
         let mut v = vector::empty<address>();
         v.push_back(ctx.sender());
 
@@ -153,33 +153,6 @@ module consensus_holdem::consensus_holdem {
         let mut ctx = tx_context::dummy();
         let coin = coin::mint_for_testing<SUI>(0, &mut ctx);
         create_table(coin , &mut ctx);
-    }
-
-    #[test_only] use sui::test_scenario;
-
-    #[test]
-    fun test_join_table() {
-        let (p1, p2, p3) = (@0x1, @0x2, @0x3);
-
-        let mut scenario = test_scenario::begin(p1);
-        let ctx = scenario.ctx();
-        let coin = coin::mint_for_testing<SUI>(0, ctx);
-        create_table(coin , ctx);
-
-        let prev_effects = scenario.next_tx(p2);
-
-        // test_scenario::next_tx(&mut scenario, p2);
-
-        let mut card_table = scenario.take_shared<CardTable>();
-
-        // join_table(&mut scenario, )
-        // let _ = {
-        //     let mut card_table = scenario.take_shared<CardTable>();
-        //     card_table.join_table(ctx);
-        //     1
-        // }
-
-        scenario.end();
     }
 }
 
