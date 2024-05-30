@@ -1,7 +1,7 @@
 /// Module: consensus_holdem
 module consensus_holdem::consensus_holdem {
 
-    // use sui::table::{Table};
+    use sui::table::{Table};
     use sui::balance::{Balance};
     use sui::coin::{Self,Coin};
     use sui::sui::SUI;
@@ -15,14 +15,22 @@ module consensus_holdem::consensus_holdem {
     const GAME_FINISHED: u8 = 4;
     const GAME_NOT_STARTED: u8 = 5;
 
+    const PLAYER_LIMIT: u8 = 6;
+
     public struct CardTable has key, store {
         id: UID,
+        buy_in: u64,
+        
         players: vector<address>,
-        player_limit: u8, // not used so far but could be implemented in join_table()
-        pot_size: Balance<SUI>, // ? maybe this is Coin since this would be actual sui tokens being sent
+        chips: Table<address, Balance<SUI>>, // buy-in
+        
+        current_pot: Balance<SUI>,
         round: u8, // tracks the betting round
-        turn: u64 // tracks the player index who's turn it is
+        turn: u64, // tracks the player index who's turn it is
     }
+
+    // TODO Create player objects that can be attached ?
+    // for example can track player stats on chain
 
     // Events
     public struct CreateTableEvent has copy, drop {
@@ -63,18 +71,23 @@ module consensus_holdem::consensus_holdem {
     // fun init(ctx: &mut TxContext) {}
 
     // someone creates the table
-    public entry fun create_table(coin: Coin<SUI>, ctx: &mut TxContext):  {
+    // TODO add buy-in
+    public entry fun create_table(coin: Coin<SUI>, buy_in: u64, ctx: &mut TxContext)  {
         let mut v = vector::empty<address>();
         v.push_back(ctx.sender());
+        let chips = sui::table::new<address, Coin<SUI>>(ctx);
 
         let card_table = CardTable {
             id: object::new(ctx),
             players: v,
-            player_limit: 6,
-            pot_size: coin.into_balance(),
+            chips: chips,
+            buy_in: buy_in,
+            current_pot: coin.into_balance(), // TODO
             round: GAME_NOT_STARTED,
             turn: 0,
         };
+
+        card_table.buy_in(coin, ctx);
 
         event::emit(CreateTableEvent {
             table_id: object::id(&card_table),
@@ -86,6 +99,8 @@ module consensus_holdem::consensus_holdem {
 
     // someone can join an existing table
     public entry fun join_table(card_table: &mut CardTable, ctx: &mut TxContext) {
+        // TODO PLAYER_LIMIT
+        assert!()
         card_table.players.push_back(ctx.sender());
 
         event::emit(JoinTableEvent {
@@ -94,13 +109,20 @@ module consensus_holdem::consensus_holdem {
         })
     }
 
+    // handles the buy in
+    public fun buy_in(card_table: &mut CardTable, coin: Coin<SUI>, ctx: &mut TxContext) {
+        let coin_amount = coin.value();
+        assert!(coin_amount >= card_table.buy_in, 0);
+
+    }
+
     public entry fun small_blind(card_table: &mut CardTable) {
         card_table.players.borrow(0);
     }
 
     // set the initial values for the card table and game
     public entry fun start_game(card_table: &mut CardTable, ctx: &mut TxContext) {
-        assert!(card_table.round >= GAME_FINISHED, 1);
+        assert!(card_table.round >= GAME_FINISHED, 0);
 
         // set small blind which is just the first player in the array
         let p = card_table.players.pop_back();
@@ -120,7 +142,7 @@ module consensus_holdem::consensus_holdem {
     public entry fun bet(card_table: &mut CardTable, coin: Coin<SUI>, ctx: &mut TxContext) {
         let p = card_table.players.borrow(card_table.turn);
         // check if the caller matches whose turn it is
-        assert!(p == ctx.sender(), 1);
+        assert!(p == ctx.sender(), 0);
 
         // for the event
         let amount = coin.value();
@@ -181,18 +203,34 @@ module consensus_holdem::consensus_holdem {
 
         let prev_effects = scenario.next_tx(p2);
 
-        // test_scenario::next_tx(&mut scenario, p2);
+        {
+            let mut card_table = scenario.take_shared<CardTable>();
+            let ctx = scenario.ctx();
+            join_table(&mut card_table, ctx);
+            // number of players at the table is correct
+            assert!(card_table.players.length() == 2, 0);
+            test_scenario::return_shared(card_table);
+        };
 
-        let mut card_table = scenario.take_shared<CardTable>();
+        let prev_effects2 = scenario.next_tx(p3);
 
-        // join_table(&mut scenario, ctx);
-        // let _ = {
-        //     let mut card_table = scenario.take_shared<CardTable>();
-        //     card_table.join_table(ctx);
-        //     1
-        // }
+        {
+            let mut card_table = scenario.take_shared<CardTable>();
+            let ctx = scenario.ctx();
+            join_table(&mut card_table, ctx);
+            assert!(card_table.players.length() == 3, 0);
+            test_scenario::return_shared(card_table);
+        };
 
         scenario.end();
+    }
+
+    #[test]
+    fun test_start_game() {
+        let (p1, p2, p3) = (@0x1, @0x2, @0x3);
+        let mut scenario = test_scenario::begin(p1);
+
+
     }
 }
 

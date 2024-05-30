@@ -55,12 +55,15 @@ module consensus_holdem::consensus_holdem {
         round: u8
     }
 
-    fun init(ctx: &mut TxContext) {
-
+    public struct WithdrawEvent has copy, drop {
+        table_id: ID,
+        player: address,
     }
 
+    // fun init(ctx: &mut TxContext) {}
+
     // someone creates the table
-    public entry fun create_table(coin: Coin<SUI>, ctx: &mut TxContext) {
+    public entry fun create_table(coin: Coin<SUI>, ctx: &mut TxContext)  {
         let mut v = vector::empty<address>();
         v.push_back(ctx.sender());
 
@@ -117,7 +120,7 @@ module consensus_holdem::consensus_holdem {
     public entry fun bet(card_table: &mut CardTable, coin: Coin<SUI>, ctx: &mut TxContext) {
         let p = card_table.players.borrow(card_table.turn);
         // check if the caller matches whose turn it is
-        assert!(p == ctx.sender(), 1);
+        assert!(p == ctx.sender(), 0);
 
         // for the event
         let amount = coin.value();
@@ -146,6 +149,16 @@ module consensus_holdem::consensus_holdem {
         })
     }
 
+    public entry fun withdraw(card_table: &mut CardTable, ctx: &mut TxContext) {
+        // TODO some kind of assert?
+        let total_balance = card_table.pot_size.value();
+        let coin = coin::take(&mut card_table.pot_size, total_balance, ctx);
+        transfer::public_transfer(coin, ctx.sender());
+        event::emit(WithdrawEvent {
+            table_id: object::id(card_table),
+            player: ctx.sender()
+        })
+    }
 
     // TODO handle winner
     #[test]
@@ -154,5 +167,41 @@ module consensus_holdem::consensus_holdem {
         let coin = coin::mint_for_testing<SUI>(0, &mut ctx);
         create_table(coin , &mut ctx);
     }
+
+    #[test_only] use sui::test_scenario;
+
+    #[test]
+    fun test_join_table() {
+        let (p1, p2, p3) = (@0x1, @0x2, @0x3);
+
+        let mut scenario = test_scenario::begin(p1);
+        let ctx = scenario.ctx();
+        let coin = coin::mint_for_testing<SUI>(0, ctx);
+        create_table(coin , ctx);
+
+        let prev_effects = scenario.next_tx(p2);
+
+        {
+            let mut card_table = scenario.take_shared<CardTable>();
+            let ctx = scenario.ctx();
+            join_table(&mut card_table, ctx);
+            assert!(card_table.players.length() == 2, 0);
+            test_scenario::return_shared(card_table);
+        };
+
+        let prev_effects2 = scenario.next_tx(p3);
+
+        {
+            let mut card_table = scenario.take_shared<CardTable>();
+            let ctx = scenario.ctx();
+            join_table(&mut card_table, ctx);
+            assert!(card_table.players.length() == 3, 0);
+            test_scenario::return_shared(card_table);
+        };
+
+        scenario.end();
+    }
+
+
 }
 
