@@ -55,9 +55,12 @@ module consensus_holdem::consensus_holdem {
         round: u8
     }
 
-    fun init(ctx: &mut TxContext) {
-
+    public struct WithdrawEvent has copy, drop {
+        table_id: ID,
+        player: address,
     }
+
+    // fun init(ctx: &mut TxContext) {}
 
     // someone creates the table
     public entry fun create_table(coin: Coin<SUI>, ctx: &mut TxContext):  {
@@ -146,6 +149,16 @@ module consensus_holdem::consensus_holdem {
         })
     }
 
+    public entry fun withdraw(card_table: &mut CardTable, ctx: &mut TxContext) {
+        // TODO some kind of assert?
+        let total_balance = card_table.pot_size.value();
+        let coin = coin::take(&mut card_table.pot_size, total_balance, ctx);
+        transfer::public_transfer(coin, ctx.sender());
+        event::emit(WithdrawEvent {
+            table_id: object::id(card_table),
+            player: ctx.sender()
+        })
+    }
 
     // TODO handle winner
     #[test]
@@ -172,7 +185,7 @@ module consensus_holdem::consensus_holdem {
 
         let mut card_table = scenario.take_shared<CardTable>();
 
-        // join_table(&mut scenario, )
+        // join_table(&mut scenario, ctx);
         // let _ = {
         //     let mut card_table = scenario.take_shared<CardTable>();
         //     card_table.join_table(ctx);
