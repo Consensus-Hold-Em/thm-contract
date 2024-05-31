@@ -28,9 +28,11 @@ module consensus_holdem::consensus_holdem {
         chips: Table<address, Balance<SUI>>, // buy-in
         
         current_pot: Balance<SUI>,
+        current_keys: vector<vector<u8>>,
         round: u8, // tracks the betting round
         turn: u64, // tracks the player index who's turn it is
-        deck: vector<EncryptedCard>
+        deck: vector<EncryptedCard>,
+        hand_state: vector<u8>
     }
 
     public struct EncryptedCard has copy, drop, store {
@@ -39,6 +41,7 @@ module consensus_holdem::consensus_holdem {
         c2: vector<u8>,
     }
 
+    // TODO delete
     public struct StartingHandState has copy, drop {
         player_cards: vector<EncryptedCard>,
         flop: vector<EncryptedCard>,
@@ -49,8 +52,7 @@ module consensus_holdem::consensus_holdem {
     public struct StartHandEvent has copy, drop {
         table_id: ID,
         player_id: u64,
-        public_key: vector<u8>,
-        hand_state: StartingHandState,
+        hand_state: vector<u8>,
         commitment: vector<u8>
     }
 
@@ -77,6 +79,12 @@ module consensus_holdem::consensus_holdem {
     public struct StartGameEvent has copy, drop {
         table_id: ID,
         players: vector<address>,
+    }
+
+    public struct NewHandEvent has copy, drop {
+        table_id: ID,
+        player_id: u64,
+        public_key: vector<u8>,
     }
 
     public struct StartBettingEvent has copy, drop {
@@ -120,10 +128,14 @@ module consensus_holdem::consensus_holdem {
             players: v,
             chips: chips,
             current_pot: sui::coin::zero(ctx).into_balance(),
+            current_keys: vector::empty<vector<u8>>(),
             round: GAME_NOT_STARTED,
             turn: 0,
-            deck: vector::empty<EncryptedCard>()
+            deck: vector::empty<EncryptedCard>(),
+            hand_state: vector::empty<u8>(),
         };
+
+        card_table.current_keys.push_back(vector::empty<u8>());
 
         buy_in(&mut card_table, coin, ctx);
 
@@ -137,10 +149,10 @@ module consensus_holdem::consensus_holdem {
 
     // someone can join an existing table
     public entry fun join_table(card_table: &mut CardTable, coin: Coin<SUI>, ctx: &mut TxContext) {
-        // TODO PLAYER_LIMIT
-        assert!(card_table.players.length() >= PLAYER_LIMIT, 0);
+        assert!(card_table.players.length() <= PLAYER_LIMIT, 0);
         card_table.buy_in(coin, ctx);
         card_table.players.push_back(ctx.sender());
+        card_table.current_keys.push_back(vector::empty<u8>());
 
         event::emit(JoinTableEvent {
             table_id: object::id(card_table),
@@ -160,11 +172,38 @@ module consensus_holdem::consensus_holdem {
         }
     }
 
+    public fun new_hand(card_table: &mut CardTable, player_id: u64, public_key: vector<u8>, 
+        ctx: &mut TxContext) {
+
+        // let mut _pk = card_table.current_keys.borrow_mut(player_id);
+        // _pk = public_key;
+
+        let mut i = 0;
+        let mut new_keys = vector::empty<vector<u8>>();
+        while (i < card_table.current_keys.length()) { 
+            let item = card_table.current_keys[i];    
+            if (player_id == i) {
+                new_keys.push_back(public_key);
+            } else {
+                new_keys.push_back(item);      
+            };
+            i = i + 1;
+        };
+
+        card_table.current_keys = new_keys;
+
+        event::emit(NewHandEvent {
+            table_id: object::id(card_table),
+            player_id: player_id,
+            public_key: public_key
+        });
+    }
+
     // start_hand sets up the initial values for the hand for each players encrypted
     // card locations. This is called by every player in order from small blind to the 
     // last player hand 
-    public fun start_hand(card_table: &mut CardTable, player_id: u64, public_key: vector<u8>,
-        commitment: vector<u8>, hand_state: StartingHandState, ctx: &mut TxContext) {
+    public fun start_hand(card_table: &mut CardTable, player_id: u64,
+        commitment: vector<u8>, hand_state: vector<u8>, ctx: &mut TxContext) {
         assert!(card_table.round >= GAME_FINISHED, 0);
 
         // TODO: assert player_id submitted matches current turn order, which we are not tracking now.
@@ -187,10 +226,11 @@ module consensus_holdem::consensus_holdem {
         event::emit(StartHandEvent {
             table_id: object::id(card_table),
             player_id: player_id,
-            public_key: public_key,
             hand_state: hand_state,
             commitment: commitment
         });
+
+        card_table.hand_state = hand_state;
 
         if (player_id == card_table.players.length()-1) {
             // Subtract the balance for the small_blind and big_blind
@@ -270,7 +310,7 @@ module consensus_holdem::consensus_holdem {
     #[test]
     fun test_create_table() {
         let mut ctx = tx_context::dummy();
-        let coin = coin::mint_for_testing<SUI>(0, &mut ctx);
+        let coin = coin::mint_for_testing<SUI>(1_000, &mut ctx);
         create_table(coin, 100, 0, 1, &mut ctx);
     }
 
@@ -290,7 +330,7 @@ module consensus_holdem::consensus_holdem {
         {
             let mut card_table = scenario.take_shared<CardTable>();
             let ctx = scenario.ctx();
-            let coin = coin::mint_for_testing<SUI>(7_000, ctx);
+            let coin = coin::mint_for_testing<SUI>(7000, ctx);
             join_table(&mut card_table, coin, ctx);
             // number of players at the table is correct
             assert!(card_table.players.length() == 2, 0);
@@ -302,7 +342,7 @@ module consensus_holdem::consensus_holdem {
         {
             let mut card_table = scenario.take_shared<CardTable>();
             let ctx = scenario.ctx();
-            let coin = coin::mint_for_testing<SUI>(2_000, ctx);
+            let coin = coin::mint_for_testing<SUI>(2000, ctx);
             join_table(&mut card_table, coin, ctx);
             assert!(card_table.players.length() == 3, 0);
             test_scenario::return_shared(card_table);
