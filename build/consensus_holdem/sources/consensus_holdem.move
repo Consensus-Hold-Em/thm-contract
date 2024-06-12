@@ -30,9 +30,12 @@ module consensus_holdem::consensus_holdem {
         current_pot: Balance<SUI>,
         current_keys: vector<vector<u8>>,
         round: u8, // tracks the betting round
-        turn: u64, // tracks the player index who's turn it is
-        deck: vector<EncryptedCard>,
-        hand_state: vector<u8>
+        player_turn: u64, // tracks the player index who's turn it is
+        deck: vector<u8>,
+        hand_state: vector<u8>,
+        flop: vector<u8>,
+        turn: vector<u8>,
+        river: vector<u8>,
     }
 
     public struct EncryptedCard has copy, drop, store {
@@ -59,7 +62,7 @@ module consensus_holdem::consensus_holdem {
     public struct ShuffleAndDecryptEvent has copy, drop {
         table_id: ID,
         player_id: u64,
-        deck: vector<EncryptedCard>
+        deck: vector<u8>
     }
 
     // TODO Create player objects that can be attached ?
@@ -130,9 +133,12 @@ module consensus_holdem::consensus_holdem {
             current_pot: sui::coin::zero(ctx).into_balance(),
             current_keys: vector::empty<vector<u8>>(),
             round: GAME_NOT_STARTED,
-            turn: 0,
-            deck: vector::empty<EncryptedCard>(),
+            player_turn: 0,
+            deck: vector::empty<u8>(),
             hand_state: vector::empty<u8>(),
+            flop: vector::empty<u8>(),
+            turn: vector::empty<u8>(),
+            river: vector::empty<u8>(),
         };
 
         card_table.current_keys.push_back(vector::empty<u8>());
@@ -244,12 +250,14 @@ module consensus_holdem::consensus_holdem {
         }
     }
 
-    public fun ShuffleAndDecrypt(card_table: &mut CardTable, player_id: u64, shuffled: vector<EncryptedCard>, ctx: &mut TxContext) {
+    public fun ShuffleAndDecrypt(card_table: &mut CardTable, player_id: u64, shuffled: vector<u8>, ctx: &mut TxContext) {
         event::emit(ShuffleAndDecryptEvent {
             table_id: object::id(card_table),
             player_id: player_id,
             deck: shuffled
         });
+
+        card_table.deck = shuffled;
 
         if (player_id == card_table.players.length() - 1) {
             card_table.round = PREFLOP_ROUND; 
@@ -260,11 +268,23 @@ module consensus_holdem::consensus_holdem {
         }
     }
 
+    public fun reveal_flop(card_table: &mut CardTable, flop: vector<u8>, ctx: &mut TxContext) {
+        card_table.flop = flop
+    }
+
+    public fun reveal_turn(card_table: &mut CardTable, turn: vector<u8>, ctx: &mut TxContext) {
+        card_table.turn = turn
+    }
+
+    public fun reveal_river(card_table: &mut CardTable, river: vector<u8>, ctx: &mut TxContext) {
+        card_table.river = river
+    }
+
     // 1) check valid player address ?? , 
     // 2) add their bet to the pot size
     // 3) handle round & turn
     public entry fun bet(card_table: &mut CardTable, coin: Coin<SUI>, ctx: &mut TxContext) {
-        let p = card_table.players.borrow(card_table.turn);
+        let p = card_table.players.borrow(card_table.player_turn);
         // check if the caller matches whose turn it is
         assert!(p == ctx.sender(), 0);
 
@@ -274,8 +294,8 @@ module consensus_holdem::consensus_holdem {
 
         card_table.current_pot.join(coin.into_balance());
         // check if it is the last player's turn
-        if (card_table.turn == card_table.players.length() - 1) {
-            card_table.turn = 0;
+        if (card_table.player_turn == card_table.players.length() - 1) {
+            card_table.player_turn = 0;
             card_table.round = card_table.round + 1;
 
             event::emit(GameRoundEndEvent {
@@ -283,7 +303,7 @@ module consensus_holdem::consensus_holdem {
                 round: round
             })
         } else {
-            card_table.turn = card_table.turn + 1;
+            card_table.player_turn = card_table.player_turn + 1;
         };
 
         event::emit(PlayerTurnEvent {
