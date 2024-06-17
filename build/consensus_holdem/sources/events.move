@@ -99,16 +99,4 @@ module consensus_holdem::events {
             table_id
         });
     }
-
-    public struct RoundStateTransition has copy, drop {
-        table_id: ID,
-        round: u8,
-    }
-
-    public fun emit_round_transition(table_id: ID, round: u8) {
-        event::emit(RoundStateTransition {
-            table_id,
-            round
-        })
-    }
 }
