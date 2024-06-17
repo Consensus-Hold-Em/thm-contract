@@ -14,6 +14,11 @@ module consensus_holdem::war {
     const REVEAL_CARDS: u8 = 4;
     const DECLARE_WINNER: u8 = 5;
 
+    // bet types
+    const FOLD: u8 = 0;
+    const CALL: u8 = 1;
+    const BET_RAISE: u8 = 2; // bet or raise can be shared
+
     public struct CardTable has key,store {
         id: UID,
         players: vector<address>,
@@ -22,7 +27,7 @@ module consensus_holdem::war {
         buy_in: u64,
         player_limit: u64,
         round_state: RoundState,
-        current_hand_state: CurrentHandState,
+        hand_state: HandState,
         // table_owner: address, // is this needed? permission related functionality
     }
 
@@ -31,13 +36,20 @@ module consensus_holdem::war {
         c1: vector<u8>,
     }
 
-    public struct CurrentHandState has key,store {
+    public struct HandState has key,store {
         id: UID,
         player_cards: vector<EncryptedCard>,
         revealed_cards: vector<u64>,
         deck: vector<u8>,
         hand_state: vector<u8>,
-        current_pot: u64,
+    }
+
+    public struct BettingState has key,store {
+        id: UID,
+        total_pot: u64,
+        current_bet: u64,
+        player_bets: Table<address, u64>,
+        player_calls: Table<address, bool>
     }
 
     public struct RoundState has key,store {
@@ -46,6 +58,8 @@ module consensus_holdem::war {
         player_init: Table<address, u8>,
         init_confirmed: u8,
         current_turn: u64,
+        betting_state: BettingState,
+        player_folds: Table<address, bool>,
     }
 
     public entry fun create_table(coin: Coin<SUI>, buy_in: u64, player_limit: u64, ctx: &mut TxContext) {
@@ -65,16 +79,23 @@ module consensus_holdem::war {
                 current_round: GAME_NOT_STARTED,
                 player_init: table::new(ctx),
                 init_confirmed: 0,
-                current_turn: 0
+                current_turn: 0,
+                player_folds: table::new(ctx),
+                betting_state: BettingState {
+                    id: object::new(ctx),
+                    total_pot: 0,
+                    current_bet: 0,
+                    player_bets: table::new(ctx),
+                    player_calls: table::new(ctx),
+            }
             },
-            current_hand_state: CurrentHandState {
+            hand_state: HandState {
                 id: object::new(ctx),
                 player_cards: vector::empty<EncryptedCard>(),
                 revealed_cards: vector::empty<u64>(),
                 deck: vector::empty<u8>(),
                 hand_state: vector::empty<u8>(),
-                current_pot: 0
-            }
+            },
         };
 
         card_table.current_keys.push_back(vector::empty<u8>());
@@ -111,9 +132,7 @@ module consensus_holdem::war {
     // ? possible consider changing the player_id index to use ctx.sender() 
     // and then use a Table for the players keys
     public fun new_hand(card_table: &mut CardTable, public_key: vector<u8>, ctx: &mut TxContext) {
-
         add_public_key(card_table, public_key, ctx);
-
         handle_init_state(card_table, ctx);
     }
 
@@ -219,7 +238,9 @@ module consensus_holdem::war {
         }
     }
 
-    public entry fun bet() {}
+    public entry fun bet() {
+
+    }
 
     public entry fun reward() {}
 }
