@@ -27,33 +27,30 @@ module consensus_holdem::events {
 
     public struct NewHandEvent has copy, drop {
         table_id: ID,
-        player_id: u64,
+        player: address,
         public_key: vector<u8>,
     }
 
-    public fun emit_new_hand(table_id: ID, player_id: u64, public_key: vector<u8>) {
+    public fun emit_new_hand(table_id: ID, player: address, public_key: vector<u8>) {
         event::emit(NewHandEvent {
             table_id,
-            player_id,
+            player,
             public_key
         });
     }
 
     public struct StartHandEvent has copy, drop {
         table_id: ID,
-        player_id: u64,
         hand_state: vector<u8>,
         commitment: vector<u8>
     }
 
-    public fun emit_start_hand(table_id: ID, 
-        player_id: u64,         
+    public fun emit_start_hand(table_id: ID,         
         hand_state: vector<u8>,
         commitment: vector<u8>) {
             
             event::emit(StartHandEvent {
                 table_id,
-                player_id,
                 hand_state,
                 commitment
             }); 
@@ -74,18 +71,18 @@ module consensus_holdem::events {
 
     public struct ShuffleAndDecryptEvent has copy, drop {
         table_id: ID,
-        player_id: u64,
+        player: address,
         deck: vector<u8>
     }
 
     public fun emit_shuffle_decrypt(
         table_id: ID, 
-        player_id: u64,
+        player: address,
         deck: vector<u8>
         ) {
             event::emit(ShuffleAndDecryptEvent {
                 table_id,
-                player_id,
+                player,
                 deck
             });
         }

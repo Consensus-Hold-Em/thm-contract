@@ -37,13 +37,7 @@ module consensus_holdem::war {
         revealed_cards: vector<u64>,
         deck: vector<u8>,
         hand_state: vector<u8>,
-        bettingState: BettingState,
-    }
-
-    public struct BettingState has key,store {
-        id: UID,
         current_pot: u64,
-        turn: Option<address> // whose turn it is
     }
 
     public struct RoundState has key,store {
@@ -51,6 +45,7 @@ module consensus_holdem::war {
         current_round: u8,
         player_init: Table<address, u8>,
         init_confirmed: u8,
+        current_turn: u64,
     }
 
     public entry fun create_table(coin: Coin<SUI>, buy_in: u64, player_limit: u64, ctx: &mut TxContext) {
@@ -69,7 +64,8 @@ module consensus_holdem::war {
                 id: object::new(ctx),
                 current_round: GAME_NOT_STARTED,
                 player_init: table::new(ctx),
-                init_confirmed: 0
+                init_confirmed: 0,
+                current_turn: 0
             },
             current_hand_state: CurrentHandState {
                 id: object::new(ctx),
@@ -77,11 +73,7 @@ module consensus_holdem::war {
                 revealed_cards: vector::empty<u64>(),
                 deck: vector::empty<u8>(),
                 hand_state: vector::empty<u8>(),
-                bettingState: BettingState {
-                    id: object::new(ctx),
-                    current_pot: 0,
-                    turn: option::none<address>(),
-                }
+                current_pot: 0
             }
         };
 
@@ -118,22 +110,22 @@ module consensus_holdem::war {
 
     // ? possible consider changing the player_id index to use ctx.sender() 
     // and then use a Table for the players keys
-    public fun new_hand(card_table: &mut CardTable, player_id: u64, public_key: vector<u8>, 
-        ctx: &mut TxContext) {
+    public fun new_hand(card_table: &mut CardTable, public_key: vector<u8>, ctx: &mut TxContext) {
 
-        add_public_key(card_table, player_id, public_key);
+        add_public_key(card_table, public_key, ctx);
 
-        handle_init_state(card_table, player_id);
+        handle_init_state(card_table, ctx);
     }
 
-    fun add_public_key(card_table: &mut CardTable, player_id: u64, public_key: vector<u8>) {
+    fun add_public_key(card_table: &mut CardTable, public_key: vector<u8>, ctx: &TxContext) {
         let mut i = 0;
         let mut new_keys = vector::empty<vector<u8>>();
-        while (i < card_table.current_keys.length()) { 
-            let item = card_table.current_keys[i];    
-            if (player_id == i) {
+        while (i < card_table.current_keys.length()) {
+            let player = card_table.players[i];
+            if (ctx.sender() == player) {
                 new_keys.push_back(public_key);
             } else {
+                let item = card_table.current_keys[i];
                 new_keys.push_back(item);      
             };
             i = i + 1;
@@ -142,7 +134,7 @@ module consensus_holdem::war {
         card_table.current_keys = new_keys;
 
         events::emit_new_hand(object::id(card_table),
-            player_id,
+            ctx.sender(),
             public_key
         );
 
@@ -150,15 +142,15 @@ module consensus_holdem::war {
 
     // This essentially handles the game state transition from not start to started
     // all players must confirm
-    fun handle_init_state(card_table: &mut CardTable, player_id: u64) {
+    fun handle_init_state(card_table: &mut CardTable, ctx: &TxContext) {
         assert!(card_table.round_state.current_round == GAME_NOT_STARTED, 0);
 
-        let player = card_table.players[player_id];
+        let player = ctx.sender();
         let init_map = &mut card_table.round_state.player_init;
         if (init_map.contains(player)) {
             let val = init_map.borrow_mut(player);
-            if (val == 0) {
-                val = &mut 1;
+            if (*val == 0) {
+                *val = 1;
                 card_table.round_state.init_confirmed = card_table.round_state.init_confirmed + 1
             }
         } else {
@@ -175,55 +167,57 @@ module consensus_holdem::war {
     // start_hand sets up the initial values for the hand for each players encrypted
     // card locations. This is called by every player in order 
     public fun start_hand(card_table: &mut CardTable, 
-        player_id: u64,
         commitment: vector<u8>, 
         hand_state: vector<u8>, 
         ctx: &mut TxContext
         ) {
         
         assert!(card_table.round_state.current_round == GAME_STARTED, 0);
-
-        // TODO: assert player_id submitted matches current turn order, which we are not tracking now.
-        
-        let addr = ctx.sender();
+        assert!(card_table.players[card_table.round_state.current_turn] == ctx.sender(), 1);
 
         events::emit_start_hand(
             object::id(card_table),
-            player_id,
             hand_state,
             commitment
         );
 
         card_table.current_hand_state.hand_state = hand_state;
 
-        if (player_id == card_table.players.length()-1) {
-            // Subtract the balance for the small_blind and big_blind
-
-            card_table.round = DECK_SETUP;
+        if (card_table.round_state.current_turn == card_table.players.length()-1) {
+            card_table.round_state.current_round = DECK_SETUP;
+            card_table.round_state.current_turn = 0;
             
             events::emit_start_game(
                 object::id(card_table),
                 card_table.players
             );
+            events::emit_round_transition(object::id(card_table), DECK_SETUP);
+        } else {
+            card_table.round_state.current_turn = card_table.round_state.current_turn + 1;
         }
     }
 
-    public fun ShuffleAndDecrypt(card_table: &mut CardTable, player_id: u64, shuffled: vector<u8>, ctx: &mut TxContext) {
+    public fun ShuffleAndDecrypt(card_table: &mut CardTable, shuffled: vector<u8>, ctx: &mut TxContext) {
+        assert!(card_table.round_state.current_round == DECK_SETUP, 0);
+        assert!(card_table.players[card_table.round_state.current_turn] == ctx.sender(), 1);
+        
+        card_table.current_hand_state.deck = shuffled;
+        
         events::emit_shuffle_decrypt(
             object::id(card_table),
-            player_id,
+            ctx.sender(),
             shuffled
         );
 
-        card_table.current_hand_state.deck = shuffled;
-
-        if (player_id == card_table.players.length() - 1) {
-            card_table.round_state.current_round = BETTING_PHASE; 
+        if (card_table.round_state.current_turn == card_table.players.length()-1) {
+            card_table.round_state.current_round = BETTING_PHASE;
+            card_table.round_state.current_turn = 0;
 
             events::emit_start_betting(object::id(card_table));
+        } else {
+            card_table.round_state.current_turn = card_table.round_state.current_turn + 1;
         }
     }
-
 
     public entry fun bet() {}
 
