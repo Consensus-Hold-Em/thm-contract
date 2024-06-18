@@ -41,7 +41,7 @@ module consensus_holdem::war {
 
     public struct BettingState has key,store {
         id: UID,
-        total_pot: u64,
+        // total_pot: u64, // ? not worth maintaining
         current_bet: u64,
         player_bets: Table<address, u64>,
         player_calls: Table<address, bool>
@@ -78,7 +78,7 @@ module consensus_holdem::war {
                 player_folds: table::new(ctx),
                 betting_state: BettingState {
                     id: object::new(ctx),
-                    total_pot: 0,
+                    // total_pot: 0,
                     current_bet: 0,
                     player_bets: table::new(ctx),
                     player_calls: table::new(ctx),
@@ -259,6 +259,25 @@ module consensus_holdem::war {
         let player = card_table.round_state.player_folds.borrow_mut(ctx.sender());
         assert!(player == false, 2);
         *player = true;
+        handle_turn(card_table, ctx);
+    }
+
+    public entry fun call(card_table: &mut CardTable, ctx: &mut TxContext) {
+        assert!(card_table.round_state.current_round == BETTING_PHASE, 0);
+        assert!(card_table.players[card_table.round_state.current_turn] == ctx.sender(), 1);
+
+        let player_current_bet = card_table.round_state.betting_state.player_bets.borrow_mut(ctx.sender());
+        let current_bet_amount = card_table.round_state.betting_state.current_bet;
+
+        let chips_amount = card_table.chips.borrow(ctx.sender());
+        if (chips_amount.value() > current_bet_amount) {
+            *player_current_bet = current_bet_amount;
+        } else {
+            // going all in, whats left
+            // TODO someday this needs to be improved to 
+            // have side pots
+            *player_current_bet = chips_amount.value();
+        };
         handle_turn(card_table, ctx);
     }
 
