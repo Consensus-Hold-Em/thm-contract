@@ -259,6 +259,7 @@ module consensus_holdem::war {
         let player = card_table.round_state.player_folds.borrow_mut(ctx.sender());
         assert!(player == false, 2);
         *player = true;
+        handle_turn(card_table, ctx);
     }
 
     // bet_op being the operation, 0,1,2
