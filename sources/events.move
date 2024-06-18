@@ -108,4 +108,22 @@ module consensus_holdem::events {
             round
         })
     }
+
+    // player event game operations
+    const FOLD: u8 = 0;
+    const CALL: u8 = 1;
+    const BET_RAISE: u8 = 2; // bet or raise can be shared
+    public struct GameOperation has copy, drop {
+        table_id: ID,
+        player: address,
+        op: u8
+    }
+    public fun emit_game_operation(table_id: ID, player: address, op: u8) {
+        event::emit(GameOperation {
+            table_id,
+            player,
+            op
+        })
+    }
+
 }

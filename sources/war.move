@@ -14,11 +14,6 @@ module consensus_holdem::war {
     const REVEAL_CARDS: u8 = 4;
     const DECLARE_WINNER: u8 = 5;
 
-    // bet types
-    const FOLD: u8 = 0;
-    const CALL: u8 = 1;
-    const BET_RAISE: u8 = 2; // bet or raise can be shared
-
     public struct CardTable has key,store {
         id: UID,
         players: vector<address>,
@@ -55,7 +50,7 @@ module consensus_holdem::war {
     public struct RoundState has key,store {
         id: UID,
         current_round: u8,
-        player_init: Table<address, u8>,
+        player_init: Table<address, bool>,
         init_confirmed: u8,
         current_turn: u64,
         betting_state: BettingState,
@@ -168,13 +163,12 @@ module consensus_holdem::war {
         let init_map = &mut card_table.round_state.player_init;
         if (init_map.contains(player)) {
             let val = init_map.borrow_mut(player);
-            if (*val == 0) {
-                *val = 1;
-                card_table.round_state.init_confirmed = card_table.round_state.init_confirmed + 1
-            }
+            assert!(*val == false, 1);
+            *val = true;
         } else {
-            init_map.add(player, 1);
+            init_map.add(player, true);
         };
+        card_table.round_state.init_confirmed = card_table.round_state.init_confirmed + 1;
 
         let all_players_init = card_table.players.length() as u8 == card_table.round_state.init_confirmed;
         if (all_players_init) {
@@ -220,7 +214,7 @@ module consensus_holdem::war {
         assert!(card_table.round_state.current_round == DECK_SETUP, 0);
         assert!(card_table.players[card_table.round_state.current_turn] == ctx.sender(), 1);
         
-        card_table.current_hand_state.deck = shuffled;
+        card_table.hand_state.deck = shuffled;
         
         events::emit_shuffle_decrypt(
             object::id(card_table),
@@ -238,9 +232,40 @@ module consensus_holdem::war {
         }
     }
 
-    public entry fun bet() {
+    fun handle_turn(card_table: &mut CardTable, ctx: &mut TxContext) {
+        let turn = card_table.round_state.current_turn;
 
+        // handle the next player turn skip over folds
+        loop {
+            turn = turn + 1;
+            let player = card_table.players[turn];
+            let folded = card_table.round_state.player_folds.borrow(player);
+            if (*folded == false) {
+                card_table.round_state.current_turn = turn;
+                break
+            };
+            // check if it rotated thru everyone and there is only one player standing
+            if (turn == card_table.round_state.current_turn) {
+                payout();
+                break;
+            }
+        }
     }
 
-    public entry fun reward() {}
+    public entry fun fold(card_table: &mut CardTable, ctx: &mut TxContext) {
+        assert!(card_table.round_state.current_round == BETTING_PHASE, 0);
+        assert!(card_table.players[card_table.round_state.current_turn] == ctx.sender(), 1);
+
+        let player = card_table.round_state.player_folds.borrow_mut(ctx.sender());
+        assert!(player == false, 2);
+        *player = true;
+    }
+
+    // bet_op being the operation, 0,1,2
+    public entry fun bet(card_table: &mut CardTable, bet_op: u8, amount: u64, ctx: &mut TxContext) {
+        assert!(card_table.round_state.current_round == BETTING_PHASE, 0);
+        assert!(card_table.players[card_table.round_state.current_turn] == ctx.sender(), 1);
+    }
+
+    public entry fun payout() {}
 }
