@@ -246,10 +246,17 @@ module consensus_holdem::war {
             };
             // check if it rotated thru everyone and there is only one player standing
             if (turn == card_table.round_state.current_turn) {
-                payout();
+                payout(card_table, ctx);
                 break;
             }
-        }
+        };
+
+        check_calls(card_table, ctx);
+    }
+
+    // checks the status of player calls, if everyone has called then move to reveal hand
+    fun check_calls(card_table: &mut CardTable, ctx: &mut TxContext) {
+
     }
 
     public entry fun fold(card_table: &mut CardTable, ctx: &mut TxContext) {
@@ -272,7 +279,7 @@ module consensus_holdem::war {
         let chips_amount = card_table.chips.borrow(ctx.sender());
         if (chips_amount.value() > current_bet_amount) {
             *player_current_bet = current_bet_amount;
-        } else {
+        } else if (chips_amount.value() < current_bet_amount) {
             // going all in, whats left
             // TODO someday this needs to be improved to 
             // have side pots
@@ -281,11 +288,21 @@ module consensus_holdem::war {
         handle_turn(card_table, ctx);
     }
 
-    // bet_op being the operation, 0,1,2
-    public entry fun bet(card_table: &mut CardTable, bet_op: u8, amount: u64, ctx: &mut TxContext) {
+    public entry fun bet(card_table: &mut CardTable, amount: u64, ctx: &mut TxContext) {
         assert!(card_table.round_state.current_round == BETTING_PHASE, 0);
         assert!(card_table.players[card_table.round_state.current_turn] == ctx.sender(), 1);
+        assert!(amount > 0, 2);
+
+        let current_bet = &mut card_table.round_state.betting_state.current_bet;
+        *current_bet = amount + *current_bet;
+
+        let player_current_bet = card_table.round_state.betting_state.player_bets.borrow_mut(ctx.sender());
+        *player_current_bet = *current_bet;
+
+        handle_turn(card_table, ctx);
     }
 
-    public entry fun payout() {}
+    public entry fun payout(card_table: &mut CardTable, ctx: &mut TxContext) {
+        events::emit_round_transition(object::id(card_table), DECLARE_WINNER);
+    }
 }
