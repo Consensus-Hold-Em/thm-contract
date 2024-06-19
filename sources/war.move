@@ -118,8 +118,14 @@ module consensus_holdem::war {
         assert!(card_table.players.length() <= card_table.player_limit, 0);
         assert!(card_table.round_state.current_round == GAME_NOT_STARTED, 0);
         card_table.buy_in(coin, ctx);
-        card_table.players.push_back(ctx.sender());
+        let player = ctx.sender();
+        card_table.players.push_back(player);
         card_table.current_keys.push_back(vector::empty<u8>());
+
+        card_table.round_state.player_init.add(player, false);
+        card_table.round_state.player_folds.add(player, false);
+        card_table.round_state.betting_state.player_bets.add(player, 0);
+        card_table.round_state.betting_state.player_calls.add(player, false);
 
         events::emit_join_table(object::id(card_table), ctx.sender());
     }
@@ -161,13 +167,11 @@ module consensus_holdem::war {
 
         let player = ctx.sender();
         let init_map = &mut card_table.round_state.player_init;
-        if (init_map.contains(player)) {
-            let val = init_map.borrow_mut(player);
-            assert!(*val == false, 1);
-            *val = true;
-        } else {
-            init_map.add(player, true);
-        };
+
+        let val = init_map.borrow_mut(player);
+        assert!(*val == false, 1);
+        *val = true;
+
         card_table.round_state.init_confirmed = card_table.round_state.init_confirmed + 1;
 
         let all_players_init = card_table.players.length() as u8 == card_table.round_state.init_confirmed;
@@ -256,7 +260,16 @@ module consensus_holdem::war {
 
     // checks the status of player calls, if everyone has called then move to reveal hand
     fun check_calls(card_table: &mut CardTable, ctx: &mut TxContext) {
-
+        let mut i = 0;
+        while (i < card_table.players.length()) {
+            let player_address = card_table.players[i];
+            let val = card_table.round_state.betting_state.player_calls.borrow(player_address);
+            if (*val == false) {
+                return; // exit function
+            }
+        };
+        // if it makes it this far then switch to reveal cards
+        events::emit_round_transition(object::id(card_table), REVEAL_CARDS);
     }
 
     public entry fun fold(card_table: &mut CardTable, ctx: &mut TxContext) {
@@ -285,6 +298,10 @@ module consensus_holdem::war {
             // have side pots
             *player_current_bet = chips_amount.value();
         };
+
+        let player_call_status = card_table.round_state.betting_state.player_calls.borrow_mut(ctx.sender());
+        *player_call_status = true;
+
         handle_turn(card_table, ctx);
     }
 
@@ -299,10 +316,34 @@ module consensus_holdem::war {
         let player_current_bet = card_table.round_state.betting_state.player_bets.borrow_mut(ctx.sender());
         *player_current_bet = *current_bet;
 
+        reset_game_status(card_table, true);
+        let player_call_status = card_table.round_state.betting_state.player_calls.borrow_mut(ctx.sender());
+        *player_call_status = true;
+
         handle_turn(card_table, ctx);
     }
 
     public entry fun payout(card_table: &mut CardTable, ctx: &mut TxContext) {
         events::emit_round_transition(object::id(card_table), DECLARE_WINNER);
+        reset_game_status(card_table, false);
+    }
+
+    fun reset_game_status(card_table: &mut CardTable, calls_only: bool) {
+        let mut i = 0;
+        while (i < card_table.players.length()) {
+            let player_address = card_table.players[i];
+            if (!calls_only) {
+                let val = card_table.round_state.player_init.borrow_mut(player_address);
+                *val = false;
+
+                let val = card_table.round_state.player_folds.borrow_mut(player_address);
+                *val = false;
+
+                let val = card_table.round_state.betting_state.player_bets.borrow_mut(player_address);
+                *val = 0;
+            };
+                let val = card_table.round_state.betting_state.player_calls.borrow_mut(player_address);
+                *val = false;
+        };
     }
 }
