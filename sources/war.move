@@ -36,7 +36,7 @@ module consensus_holdem::war {
         player_cards: vector<EncryptedCard>,
         revealed_cards: vector<u64>,
         deck: vector<u8>,
-        hand_state: vector<u8>,
+        hands: vector<u8>,
     }
 
     public struct BettingState has key,store {
@@ -89,7 +89,7 @@ module consensus_holdem::war {
                 player_cards: vector::empty<EncryptedCard>(),
                 revealed_cards: vector::empty<u64>(),
                 deck: vector::empty<u8>(),
-                hand_state: vector::empty<u8>(),
+                hands: vector::empty<u8>(),
             },
         };
 
@@ -198,7 +198,7 @@ module consensus_holdem::war {
             commitment
         );
 
-        card_table.current_hand_state.hand_state = hand_state;
+        card_table.hand_state.hands = hand_state;
 
         if (card_table.round_state.current_turn == card_table.players.length()-1) {
             card_table.round_state.current_round = DECK_SETUP;
@@ -229,7 +229,8 @@ module consensus_holdem::war {
         if (card_table.round_state.current_turn == card_table.players.length()-1) {
             card_table.round_state.current_round = BETTING_PHASE;
             card_table.round_state.current_turn = 0;
-
+            
+            events::emit_round_transition(object::id(card_table), REVEAL_CARDS);
             events::emit_start_betting(object::id(card_table));
         } else {
             card_table.round_state.current_turn = card_table.round_state.current_turn + 1;
@@ -237,7 +238,7 @@ module consensus_holdem::war {
     }
 
     fun handle_turn(card_table: &mut CardTable, ctx: &mut TxContext) {
-        let turn = card_table.round_state.current_turn;
+        let mut turn = card_table.round_state.current_turn;
 
         // handle the next player turn skip over folds
         loop {
@@ -251,7 +252,7 @@ module consensus_holdem::war {
             // check if it rotated thru everyone and there is only one player standing
             if (turn == card_table.round_state.current_turn) {
                 payout(card_table, ctx);
-                break;
+                break
             }
         };
 
@@ -269,6 +270,7 @@ module consensus_holdem::war {
             }
         };
         // if it makes it this far then switch to reveal cards
+        card_table.round_state.current_round = REVEAL_CARDS;
         events::emit_round_transition(object::id(card_table), REVEAL_CARDS);
     }
 
@@ -286,8 +288,8 @@ module consensus_holdem::war {
         assert!(card_table.round_state.current_round == BETTING_PHASE, 0);
         assert!(card_table.players[card_table.round_state.current_turn] == ctx.sender(), 1);
 
-        let player_current_bet = card_table.round_state.betting_state.player_bets.borrow_mut(ctx.sender());
         let current_bet_amount = card_table.round_state.betting_state.current_bet;
+        let player_current_bet = card_table.round_state.betting_state.player_bets.borrow_mut(ctx.sender());
 
         let chips_amount = card_table.chips.borrow(ctx.sender());
         if (chips_amount.value() > current_bet_amount) {
@@ -324,6 +326,7 @@ module consensus_holdem::war {
     }
 
     public entry fun payout(card_table: &mut CardTable, ctx: &mut TxContext) {
+        card_table.round_state.current_round = DECLARE_WINNER;
         events::emit_round_transition(object::id(card_table), DECLARE_WINNER);
         reset_game_status(card_table, false);
     }
